@@ -1,140 +1,135 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
 import cors from 'cors';
+import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config(); // Load environment variables
 
 const app = express();
 app.use(express.json());
 
-// ✅ Load environment variables
-const { MONGO_URI, JWT_SECRET, PORT } = process.env;
-if (!MONGO_URI || !JWT_SECRET) {
-  console.error('❌ MONGO_URI or JWT_SECRET is missing in environment variables. Add them to .env file.');
+// ✅ CORS Configuration (Allow Frontend Requests)
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+// ✅ MongoDB Connection
+const mongoURI = process.env.MONGO_URI;
+if (!mongoURI) {
+  console.error('❌ MONGO_URI is missing in the .env file');
   process.exit(1);
 }
 
-// ✅ CORS Configuration
-const allowedOrigins = ['http://localhost:3000', 'http://localhost:5173'];
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-  })
-);
-
-// ✅ MongoDB Connection
-mongoose
-  .connect(MONGO_URI)
-  .then(() => console.log('✅ MongoDB Connected'))
+mongoose.connect(mongoURI)
+  .then(() => console.log('✅ MongoDB Connected Successfully'))
   .catch((err) => {
     console.error('❌ MongoDB Connection Error:', err);
     process.exit(1);
   });
 
-// ✅ Admin Schema & Model
-const adminSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
+// ✅ User Schema & Model
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, unique: true, required: true },
+  password: { type: String, required: true } // Hashed password
 });
 
-const Admin = mongoose.model('Admin', adminSchema);
+const User = mongoose.model('User', userSchema);
 
-// ✅ Test API Route
-app.get('/api/test', (req, res) => {
-  res.json({ message: '✅ API is working!' });
+// ✅ Root Route (Health Check)
+app.get('/', (req, res) => {
+  res.send('🚀 Server is Running!');
 });
 
-// ✅ Admin Signup Route (Ensures Hashed Password)
-app.post('/api/admin/signup', async (req, res) => {
-  const { email, password } = req.body;
+app.post('/api/signup', async (req, res) => {
+  console.log('📥 Received sign-up request:', req.body); // Debug log
 
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    console.error('❌ Missing required fields');
+    return res.status(400).json({ message: 'All fields are required' });
   }
 
   try {
-    const existingAdmin = await Admin.findOne({ email });
-    if (existingAdmin) {
-      return res.status(400).json({ error: 'Admin already exists' });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      console.error('❌ Email already in use:', email);
+      return res.status(400).json({ message: 'Email already in use' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newAdmin = new Admin({ email, password: hashedPassword });
-    await newAdmin.save();
+    const newUser = new User({ name, email, password: hashedPassword });
+    await newUser.save();
 
-    res.status(201).json({ message: 'Admin registered successfully' });
-  } catch (err) {
-    console.error('❌ Admin Signup Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    console.log('✅ User registered successfully:', email);
+    res.status(201).json({ message: 'User registered successfully!' });
+  } catch (error) {
+    console.error('❌ Signup Error:', error);
+    res.status(500).json({ message: 'Signup failed', error: error.message });
   }
 });
 
-// ✅ Signin Route (Check for Admin or User)
+// ✅ Login Route
 app.post('/api/signin', async (req, res) => {
   const { email, password } = req.body;
-  console.log(`🔹 Signin attempt: ${email}`);
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password are required' });
-  }
 
   try {
-    // 🔍 Check Admin Collection First
-    const admin = await Admin.findOne({ email });
-    if (admin) {
-      const isPasswordValid = await bcrypt.compare(password, admin.password);
-      console.log(`Admin Password Match: ${isPasswordValid}`); // Debugging line
-      if (isPasswordValid) {
-        const token = jwt.sign({ userId: admin._id, role: 'admin' }, JWT_SECRET, { expiresIn: '1h' });
-        return res.json({ token, message: 'Admin login successful', role: 'admin' });
-      }
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    res.status(401).json({ error: 'Invalid email or password' });
-  } catch (err) {
-    console.error('❌ Signin Error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(400).json({ message: 'User not found' });
+    }
+
+    // Compare hashed password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid email or password' });
+    }
+
+    // Ensure JWT_SECRET is set
+    if (!process.env.JWT_SECRET) {
+      console.error('❌ JWT_SECRET is missing in the .env file');
+      return res.status(500).json({ message: 'Internal server error' });
+    }
+
+    // Generate JWT Token
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+    );
+
+    res.status(200).json({
+      message: 'Login successful',
+      user: { id: user._id, name: user.name, email: user.email },
+      token,
+    });
+  } catch (error) {
+    console.error('Login Error:', error);
+    res.status(500).json({ message: 'Login failed', error: error.message });
   }
-});
-
-// ✅ Middleware: Authenticate JWT Token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized - No token provided' });
-  }
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// ✅ Protected Route Example (Requires Authentication)
-app.get('/api/protected', authenticateToken, (req, res) => {
-  res.json({ message: 'Protected route accessed!', user: req.user });
-});
-
-// ✅ 404 Handler for Undefined Routes
-app.use((req, res) => {
-  res.status(404).json({ error: 'API route not found' });
 });
 
 // ✅ Start Server
-const SERVER_PORT = PORT || 5000;
-app.listen(SERVER_PORT, () => console.log(`🚀 Server running on port ${SERVER_PORT}`));
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

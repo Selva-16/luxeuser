@@ -43,36 +43,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Invalid email or password');
+        throw new Error(data.message || 'Invalid email or password');
       }
 
-      const { username } = data;
-      const userData = { username, email };
+      const userData = { username: data.user.name, email: data.user.email }; // Ensure correct property mapping
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
     } catch (error) {
+      console.error('❌ Sign-in error:', error);
       throw error;
     }
   };
 
   const signUp = async (username: string, email: string, password: string) => {
     try {
+      console.log('📤 Sending sign-up request:', { name: username, email, password });
+
       const response = await fetch('http://localhost:5000/api/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password }),
+        body: JSON.stringify({ name: username, email, password })
       });
 
       const data = await response.json();
+      console.log('📥 Server response:', data);
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Signup failed');
-      }
+      if (!response.ok) throw new Error(data.message || 'Sign-up failed');
 
-      const userData = { username, email };
-      localStorage.setItem('user', JSON.stringify(userData));
-      setUser(userData);
+      return data;
     } catch (error) {
+      console.error('❌ Sign-up error:', error);
       throw error;
     }
   };
