@@ -30,7 +30,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const adminData = { username: 'Admin', email };
         localStorage.setItem('user', JSON.stringify(adminData));
         setUser(adminData);
-        window.location.href = 'https://luxefurnish.netlify.app/admin/dashboard'; // Redirect admin
+        window.location.href = 'https://luxefurnish.netlify.app/'; // Redirect admin
         return;
       }
 
