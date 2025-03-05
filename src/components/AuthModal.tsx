@@ -29,7 +29,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         // Redirect if admin logs in
         if (email === 'admin@gmail.com' && password === 'admin123') {
-          window.location.href = 'http://localhost:5173/';
+          window.location.href = 'https://luxefurnish.netlify.app/admin/dashboard';
           return;
         }
       } else {
